@@ -1,0 +1,149 @@
+Ciobanu Bogdan-Calin
+335CA
+
+                                Tema3 ASC
+
+-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~
+
+Implementare:
+Am urmat un model de hashtable bazat pe un plain vector cu insertie prin
+linear probing. Motivul pentru care nu am ales chaning este ca chaining-ul ar
+introduce multe probleme legate de alocarea memoriei, care este cea mai
+costisitoare operatie din implementarea curenta.
+
+Insertia: se fac copii ale celor doi vectori primiti pe VRAM, apoi se apeleaza
+kernelul de insertie pentru acestia. Apoi fiecare thread cauta pozitia cheii
+in container-ul hashtable-ului, si updateaza valoarea.
+
+Cautarea: se aplica o functie de hash in avalansa peste cheia primita, si apoi
+se face linear probing cu loop-around pentru gasirea unei pozitii goale, sau
+care are cheia egala cu cheia care a fost ceruta. Acest lucru se face cu
+ajutorul functiei atomicCAS. Daca s-a gasit un astfel de loc, cheia care se
+gaseste la pozitia curenta avem garantia ca este egala cu cheia ceruta.
+De asemenea, pentru a numara cheile unice introduse, putem compara valoarea
+intoarsa de atomicCAS cu 0, caz in care cheia este proaspat adaugata.
+
+Get-ul: se face o copie a vectorului de chei si se aloca un vector de valori,
+care mai apoi sunt pasati la kernelul de get. Fiecare thread mai apoi cauta
+pozitia cheii aferente, si daca cheia de la pozitia intoarsa nu este nula,
+caz in care cheia nu a fost introdusa, pune valoarea in vectorul de valori.
+
+Rehash-ul: Rehash-ul se face in momentul in care load factor-ul (chei unice +
+chei care urmeaza sa fie bagate) / dimensiune container) este mai mare decat
+un load factor de threshold. Daca acest lucru se intampla, se face un realloc
+al memoriei, si pentru fiecare pozitie din hashtable-ul vechi se verifica
+daca este nenula, caz in care se recalculeaza pozitia in hashtable-ul nou, si
+se atribuie valoarea la acea pozitie. Empiric am ales load factor-ul target
+ca 0.55 si cel de threshold 0.75, fiind o balanta buna intre coliziuni
+si numar de rehash-uri.
+
+Memorie:
+In VRAM este permanent container-ul hashtable-ului. In momentul rehash-ului,
+se gaseste cel vechi in acelasi timp cu cel nou, pana cand se face rehash-ul
+complet si se sincronizeaza device-ul. De asemenea, la fiecare query
+se aloca memorie pentru devValues si devKeys, vectorii care e nevoie sa fie
+trimisi si la insert si la get. Ca variabila auxiliara tinuta in memoria VRAM,
+se tine si numarul de valori unice care sunt introduse de un insert.
+O optimizare care ar fi putut fi facuta, ar fi fost tinerea unei variabile care
+memoreaza dimensiunea acestor vectori, iar in momentul in care vine un query nou
+cu o dimensiune <= cu cea a vectorilor vechi, acestia sa fie refolositi.
+Din pacate, acest lucru nu a functionat din cauza checker-ului, care lua in
+calcul acea memorie la load_factor.
+
+Rezultate:
+
+------- Test T1 START   ----------
+
+HASH_BATCH_INSERT   count: 1000000          speed: 100M/sec         loadfactor: 55%
+HASH_BATCH_GET      count: 1000000          speed: 118M/sec         loadfactor: 55%
+----------------------------------------------
+AVG_INSERT: 100 M/sec,  AVG_GET: 118 M/sec,     MIN_SPEED_REQ: 10 M/sec
+
+
+------- Test T1 END     ----------       [ OK RESULT: +20 pts ]
+
+
+
+------- Test T2 START   ----------
+
+HASH_BATCH_INSERT   count: 500000           speed: 76M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 500000           speed: 62M/sec          loadfactor: 55%
+HASH_BATCH_GET      count: 500000           speed: 79M/sec          loadfactor: 55%
+HASH_BATCH_GET      count: 500000           speed: 76M/sec          loadfactor: 55%
+----------------------------------------------
+AVG_INSERT: 69 M/sec,   AVG_GET: 78 M/sec,      MIN_SPEED_REQ: 20 M/sec
+
+
+------- Test T2 END     ----------       [ OK RESULT: +20 pts ]
+
+
+
+------- Test T3 START   ----------
+
+HASH_BATCH_INSERT   count: 125000           speed: 75M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 125000           speed: 60M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 125000           speed: 54M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 125000           speed: 65M/sec          loadfactor: 73%
+HASH_BATCH_INSERT   count: 125000           speed: 46M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 125000           speed: 67M/sec          loadfactor: 66%
+HASH_BATCH_INSERT   count: 125000           speed: 34M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 125000           speed: 68M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 73M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 73M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 73M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 74M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 73M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 72M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 68M/sec          loadfactor: 62%
+HASH_BATCH_GET      count: 125000           speed: 64M/sec          loadfactor: 62%
+----------------------------------------------
+AVG_INSERT: 59 M/sec,   AVG_GET: 71 M/sec,      MIN_SPEED_REQ: 40 M/sec
+
+
+------- Test T3 END     ----------       [ OK RESULT: +15 pts ]
+
+
+
+------- Test T4 START   ----------
+
+HASH_BATCH_INSERT   count: 2500000          speed: 112M/sec         loadfactor: 55%
+HASH_BATCH_INSERT   count: 2500000          speed: 84M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 2500000          speed: 69M/sec          loadfactor: 55%
+HASH_BATCH_INSERT   count: 2500000          speed: 91M/sec          loadfactor: 73%
+HASH_BATCH_GET      count: 2500000          speed: 135M/sec         loadfactor: 73%
+HASH_BATCH_GET      count: 2500000          speed: 135M/sec         loadfactor: 73%
+HASH_BATCH_GET      count: 2500000          speed: 118M/sec         loadfactor: 73%
+HASH_BATCH_GET      count: 2500000          speed: 102M/sec         loadfactor: 73%
+----------------------------------------------
+AVG_INSERT: 89 M/sec,   AVG_GET: 123 M/sec,     MIN_SPEED_REQ: 50 M/sec
+
+
+------- Test T4 END     ----------       [ OK RESULT: +15 pts ]
+
+
+
+------- Test T5 START   ----------
+
+HASH_BATCH_INSERT   count: 20000000         speed: 113M/sec         loadfactor: 55%
+HASH_BATCH_INSERT   count: 20000000         speed: 84M/sec          loadfactor: 55%
+HASH_BATCH_GET      count: 20000000         speed: 126M/sec         loadfactor: 55%
+HASH_BATCH_GET      count: 20000000         speed: 102M/sec         loadfactor: 55%
+----------------------------------------------
+AVG_INSERT: 98 M/sec,   AVG_GET: 114 M/sec,     MIN_SPEED_REQ: 50 M/sec
+
+
+------- Test T5 END     ----------       [ OK RESULT: +15 pts ]
+
+TOTAL gpu_hashtable  85/85
+
+Discutie rezultate:
+Aceste rezultate au fost obtinute in urma rularii pe coada wn01.
+Se observa in fiecare caz ca load factor-ul ramane in limitele presetate
+in headerul gpu_hashtable.hpp. De asemenea, se observa ca viteza la primul
+insert este foarte similara cu viteza get-urilor. Mai apoi, apar dip-uri
+in performanta operatiilor de insert, care se explica prin faptul ca probabil
+acel insert a dat trigger la un rehash, operatie care genereaza o pierdere de
+performanta de pana in 50%.
+O alta observatie e ca testul care are rezultatele cele mai slabe, 3, genereaza
+o performanta mai slaba din cauza numarului mare de batch-uri, care au
+dimensiuni relativ mici.
